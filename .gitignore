@@ -1,6 +1,5 @@
 .env
 catboost_info
-dataset
 wandb
 
 ### JupyterNotebooks template

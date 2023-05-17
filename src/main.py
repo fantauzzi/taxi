@@ -1,5 +1,6 @@
 import logging
 from os import getenv
+from pathlib import Path
 from time import perf_counter
 
 import pandas as pd
@@ -13,13 +14,18 @@ _logger = logging.getLogger()
 info = _logger.info
 warning = _logger.warning
 
+prj_root = Path('..').resolve()
+dataset_path = (prj_root / 'dataset').resolve()
+config_path = (prj_root / 'config').resolve()
+# wandb_path = (prj_root / 'wandb').resolve()
+catboost_path = (prj_root / 'catboost_info').resolve()
 pd.set_option('display.max_columns', None)
 
-load_dotenv('./.env')
+load_dotenv(config_path / '.env')
 wandb.login(host='https://api.wandb.ai', key=getenv('WANDB_KEY'))
 
-df_train = pd.read_parquet('dataset/green_tripdata_2021-01.parquet')
-df_val = pd.read_parquet('dataset/green_tripdata_2021-02.parquet')
+df_train = pd.read_parquet(dataset_path / 'green_tripdata_2021-01.parquet')
+df_val = pd.read_parquet(dataset_path / 'green_tripdata_2021-02.parquet')
 
 cat_features = ['PULocationID', 'DOLocationID']
 numerical = ['trip_distance']
@@ -76,7 +82,9 @@ def train():
     early_stopping_rounds = 200
 
     with wandb.init(project='taxi',
-                    config={'objective': 'RMSE',
+                    # dir=wandb_path,
+                    config={'train_dir': catboost_path,
+                            'objective': 'RMSE',
                             'task_type': 'GPU',
                             'iterations': iterations,
                             'early_stopping_rounds': early_stopping_rounds,
