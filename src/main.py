@@ -56,7 +56,7 @@ sweep_configuration = {
     'metric': {'goal': 'minimize', 'name': 'best_score_val'},
     'parameters':
         {
-            'learning_rate': {'max': 0.13, 'min': 0.01},
+            'learning_rate': {'max': 0.3, 'min': 0.01},
             'depth': {'max': 10, 'min': 6},
             'border_count': {'value': 128}
         }
@@ -80,11 +80,11 @@ def train():
 
     iterations = 20000
     early_stopping_rounds = 200
-
+    objective = 'MAPE'
     with wandb.init(project='taxi',
                     # dir=wandb_path,
                     config={'train_dir': catboost_path,
-                            'objective': 'RMSE',
+                            'objective': objective,
                             'task_type': 'GPU',
                             'iterations': iterations,
                             'early_stopping_rounds': early_stopping_rounds,
@@ -101,11 +101,11 @@ def train():
         elapsed_time = perf_counter() - start_time
         print(f'Training time (sec) {elapsed_time}')
         wandb.log({'best_iteration': model.get_best_iteration(),
-                   'best_score_train': best_score['learn']['RMSE'],
-                   'best_score_val': best_score['validation']['RMSE'],
+                   'best_score_train': best_score['learn'][objective],
+                   'best_score_val': best_score['validation'][objective],
                    'training_time': elapsed_time})
 
 
-wandb.agent(sweep_id, function=train, count=10)
+wandb.agent(sweep_id, function=train, count=20)
 # sweep = wandb.controller(sweep_id)
 # sweep.run(verbose=True, print_actions=True)
