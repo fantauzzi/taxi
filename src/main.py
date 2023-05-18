@@ -29,16 +29,18 @@ dot_env_path = config_path / '.env'
 if Path(dot_env_path).exists():
     load_dotenv(dot_env_path)
 if getenv('WANDB_KEY') is None:
-    info(f'WANDB_KEY is not set. Now trying to log into Weights & Biases; if unable, either set then environment \
+    info(f'WANDB_KEY is not set. Now trying to log into Weights & Biases; if unable, either set the environment \
 variable WANDB_KEY to the key to be used, or set it in {dot_env_path}')
 wandb.login(host='https://api.wandb.ai', key=getenv('WANDB_KEY'))
 
 train_path = dataset_path / train_file
 if not Path(train_path).exists():
+    info(f'Downloading dataset {train_file_remote} into {train_path}')
     urlretrieve(train_file_remote, train_path)
 
 val_path = dataset_path / val_file
 if not Path(val_path).exists():
+    info(f'Downloading dataset {val_file_remote} into {val_path}')
     urlretrieve(val_file_remote, val_path)
 
 df_train = pd.read_parquet(train_path)
