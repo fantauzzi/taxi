@@ -2,12 +2,12 @@ import logging
 from os import getenv
 from pathlib import Path
 from time import perf_counter
+from urllib.request import urlretrieve
 
 import pandas as pd
+import wandb
 from catboost import CatBoostRegressor, Pool
 from dotenv import load_dotenv
-
-import wandb
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 _logger = logging.getLogger()
@@ -20,14 +20,32 @@ config_path = (prj_root / 'config').resolve()
 # wandb_path = (prj_root / 'wandb').resolve()
 catboost_path = (prj_root / 'catboost_info').resolve()
 pd.set_option('display.max_columns', None)
+train_file = 'green_tripdata_2021-01.parquet'
+val_file = 'green_tripdata_2021-02.parquet'
+train_file_remote = 'https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2021-01.parquet'
+val_file_remote = 'https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2021-02.parquet'
+dot_env_path = config_path / '.env'
 
-load_dotenv(config_path / '.env')
+if Path(dot_env_path).exists():
+    load_dotenv(dot_env_path)
+if getenv('WANDB_KEY') is None:
+    info(f'WANDB_KEY is not set. Now trying to log into Weights & Biases; if unable, either set then environment \
+variable WANDB_KEY to the key to be used, or set it in {dot_env_path}')
 wandb.login(host='https://api.wandb.ai', key=getenv('WANDB_KEY'))
 
-df_train = pd.read_parquet(dataset_path / 'green_tripdata_2021-01.parquet')
-df_val = pd.read_parquet(dataset_path / 'green_tripdata_2021-02.parquet')
+train_path = dataset_path / train_file
+if not Path(train_path).exists():
+    urlretrieve(train_file_remote, train_path)
+
+val_path = dataset_path / val_file
+if not Path(val_path).exists():
+    urlretrieve(val_file_remote, val_path)
+
+df_train = pd.read_parquet(train_path)
+df_val = pd.read_parquet(val_path)
 
 cat_features = ['PULocationID', 'DOLocationID']
+
 numerical = ['trip_distance']
 
 
@@ -51,7 +69,6 @@ info(f'Validation set contains {len(df_val)} samples')
 
 sweep_configuration = {
     'method': 'bayes',
-    # 'controller': {'type': 'local'},
     'name': 'sweep',
     'metric': {'goal': 'minimize', 'name': 'best_score_val'},
     'parameters':
@@ -107,5 +124,9 @@ def train():
 
 
 wandb.agent(sweep_id, function=train, count=20)
-# sweep = wandb.controller(sweep_id)
-# sweep.run(verbose=True, print_actions=True)
+
+""" 
+TODO: 
+set seed/reproducibility
+add artifical variable with day of the week
+"""

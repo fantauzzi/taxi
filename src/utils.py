@@ -19,3 +19,7 @@ class TQDM_CB:
     def finish(self):
         if self._tqdm.n < self._iterations:
             self._tqdm.update(self._iterations - self._tqdm.n)
+
+
+# sweep = wandb.controller(sweep_id)
+# sweep.run(verbose=True, print_actions=True)
