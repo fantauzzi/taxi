@@ -1,13 +1,16 @@
 import logging
-from os import getenv
+from functools import partial
+from os import getenv, system
 from pathlib import Path
 from time import perf_counter
 from urllib.request import urlretrieve
 
+import hydra
 import pandas as pd
 import wandb
 from catboost import CatBoostRegressor, Pool
 from dotenv import load_dotenv
+from omegaconf import DictConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 _logger = logging.getLogger()
@@ -46,7 +49,7 @@ if not Path(val_path).exists():
 df_train = pd.read_parquet(train_path)
 df_val = pd.read_parquet(val_path)
 
-cat_features = ['PULocationID', 'DOLocationID']
+cat_features = ['PULocationID', 'DOLocationID', 'weekday']
 
 numerical = ['trip_distance']
 
@@ -56,6 +59,8 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[:, 'duration'] = df.lpep_dropoff_datetime - df.lpep_pickup_datetime
     df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)
     df = df[(df.duration >= 1) & (df.duration <= 60)]
+    weekday = df['lpep_pickup_datetime'].apply(lambda entry: entry.weekday())
+    df.loc[:, 'weekday'] = weekday
     df = df.drop(['lpep_pickup_datetime', 'lpep_dropoff_datetime'], axis=1)
     df.loc[:, cat_features] = df[cat_features].astype(str)
     # df = df.loc[:, cat_features + numerical+['duration']]
@@ -69,22 +74,9 @@ df_val = prepare(df_val)
 info(f'Training set contains {len(df_train)} samples')
 info(f'Validation set contains {len(df_val)} samples')
 
-sweep_configuration = {
-    'method': 'bayes',
-    'name': 'sweep',
-    'metric': {'goal': 'minimize', 'name': 'best_score_val'},
-    'parameters':
-        {
-            'learning_rate': {'max': 0.3, 'min': 0.01},
-            'depth': {'max': 10, 'min': 6},
-            'border_count': {'value': 128}
-        }
-}
 
-sweep_id = wandb.sweep(sweep=sweep_configuration, project='taxi_sweep')
-
-
-def train():
+def train(params: DictConfig) -> None:
+    info(f'params is {params}')
     start_time = perf_counter()
     train_pool = Pool(df_train.drop('duration', axis=1),
                       label=df_train['duration'],
@@ -97,24 +89,22 @@ def train():
                       label = df_test['duration'],
                       cat_features=cat_features)"""
 
-    iterations = 20000
-    early_stopping_rounds = 200
     objective = 'MAPE'
-    with wandb.init(project='taxi',
+    with wandb.init(project=params.wandb.project,
                     # dir=wandb_path,
                     config={'train_dir': catboost_path,
                             'objective': objective,
-                            'task_type': 'GPU',
-                            'iterations': iterations,
-                            'early_stopping_rounds': early_stopping_rounds,
+                            'task_type': params.catboost.task_type,
+                            'random_seed': params.catboost.random_seed,
+                            'iterations': params.catboost.iterations,
+                            'early_stopping_rounds': params.catboost.early_stopping_rounds,
                             'per_float_feature_quantization': '5:border_count=1024'}) as run:
         model = CatBoostRegressor(**wandb.config)
 
-        verbose = 200
         model.fit(train_pool,
                   eval_set=val_pool,
                   use_best_model=True,
-                  verbose=verbose)
+                  verbose=params.catboost.verbose)
 
         best_score = model.get_best_score()
         elapsed_time = perf_counter() - start_time
@@ -125,10 +115,36 @@ def train():
                    'training_time': elapsed_time})
 
 
-wandb.agent(sweep_id, function=train, count=20)
+@hydra.main(version_base='1.3', config_path='../config', config_name='params')
+def main(params: DictConfig) -> None:
+    my_train = partial(train, params)
+    info(f'These are the parameter(s) set at the beginning of the sweep:')
+    for key, value in params.items():
+        info(f"  '{key}': {value}")
 
-""" 
-TODO: 
-set seed/reproducibility
-add artifical variable with day of the week
-"""
+    sweep_configuration = {
+        'method': 'bayes',
+        'name': 'sweep',
+        'metric': {'goal': 'minimize', 'name': 'best_score_val'},
+        'parameters':
+            {
+                'learning_rate': {'max': 0.3, 'min': 0.01},
+                'depth': {'max': 10, 'min': 6},
+                'border_count': {'value': 128}
+            }
+    }
+
+    sweep_id = wandb.sweep(sweep=sweep_configuration, project=params.wandb.project)
+    info(f'Starting sweep for {params.wandb.count} iteration(s) with id {sweep_id}')
+    wandb.agent(sweep_id, function=my_train, count=params.wandb.count)
+    api = wandb.Api()
+    prj = api.project(params.wandb.project)
+    sweep_long_id = f'{prj.entity}/{params.wandb.project}/{sweep_id}'
+    command = f'wandb sweep --stop {sweep_long_id}'
+    info(f'Stopping the current sweep {sweep_id} with command:')
+    info(f'  {command}')
+    system(command)
+
+
+if __name__ == '__main__':
+    main()
