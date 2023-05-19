@@ -23,3 +23,17 @@ class TQDM_CB:
 
 # sweep = wandb.controller(sweep_id)
 # sweep.run(verbose=True, print_actions=True)
+
+"""
+sweep_configuration = {
+    'method': 'bayes',
+    'name': 'sweep',
+    'metric': {'goal': 'minimize', 'name': 'best_score_val'},
+    'parameters':
+        {
+            'learning_rate': {'max': 0.3, 'min': 0.01},
+            'depth': {'max': 10, 'min': 6},
+            'border_count': {'value': 128}
+        }
+}
+"""
