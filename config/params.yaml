@@ -1,9 +1,17 @@
 catboost:
-  task_type: GPU
-  random_seed: 883
-  verbose: 200
-  iterations: 10000
-  early_stopping_rounds: 200
+  model:
+    task_type: GPU
+    random_seed: 883
+    iterations: 10000
+    early_stopping_rounds: 200
+    per_float_feature_quantization: '5:border_count=1024'
+    learning_rate: 0.17
+    depth: 8
+    border_count: 128
+    l2_leaf_reg: 1.0
+    objective: MAPE
+  fit:
+    verbose: 200
 wandb:
-  count: 10
+  count: 20
   project: taxi_sweep

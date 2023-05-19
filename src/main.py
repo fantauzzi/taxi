@@ -11,6 +11,7 @@ import wandb
 from catboost import CatBoostRegressor, Pool
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
+from pandas import DataFrame
 
 # Configure Python logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -37,43 +38,34 @@ dataset_config_path = config_path / 'dataset_files.yaml'
 if Path(dot_env_path).exists():
     load_dotenv(dot_env_path)
 
+# Login into W&B if not logged in already
 if getenv('WANDB_KEY') is None:
     info(f'WANDB_KEY is not set. Now trying to log into Weights & Biases; if unable, either set the environment \
 variable WANDB_KEY to the key to be used, set it in {dot_env_path}, or jost login with "wandb login"')
 wandb.login(host='https://api.wandb.ai', key=getenv('WANDB_KEY'))
 
+# Load the dataset (first download it, if needed)
+
 dataset_config = OmegaConf.load(dataset_config_path)
 
-dataset = {}
+# Training set and validation set will end up in dataset['train'] and dataset['validation'] respectively
+dataset: dict[str, DataFrame | None] = {}
 for dataset_type in ('train', 'validation'):
-    file_names = dataset_config[dataset_type]
+    file_names = dataset_config[dataset_type]  # The list of filenames with the given dataset
     dataset[dataset_type] = None
     for name in file_names:
         dataset_file_path = dataset_path / dataset_type / name
         dataset_file_url = 'https://d37ci6vzurychx.cloudfront.net/trip-data/' + name
-        if not Path(dataset_file_path).exists():
+        if not Path(dataset_file_path).exists():  # Download the files if needed
             info(f'Downloading dataset {dataset_file_url} into {dataset_file_path}')
             urlretrieve(dataset_file_url, dataset_file_path)
+        # Load the file and concatenate it with the previously loaded files in one DataFrame
         df = pd.read_parquet(dataset_file_path)
         if dataset[dataset_type] is None:
             dataset[dataset_type] = df
         else:
             dataset[dataset_type] = pd.concat([dataset[dataset_type], df], axis=0)
 
-"""
-train_path = dataset_path / train_file
-if not Path(train_path).exists():
-    info(f'Downloading dataset {train_file_remote} into {train_path}')
-    urlretrieve(train_file_remote, train_path)
-
-val_path = dataset_path / val_file
-if not Path(val_path).exists():
-    info(f'Downloading dataset {val_file_remote} into {val_path}')
-    urlretrieve(val_file_remote, val_path)
-
-df_train = pd.read_parquet(train_path)
-df_val = pd.read_parquet(val_path)
-"""
 cat_features = ['PULocationID', 'DOLocationID', 'weekday']  # weekday is an artificial variable to be introduced below
 numerical = ['trip_distance']
 
@@ -116,44 +108,42 @@ def train(params: DictConfig) -> None:
     """ test_pool = Pool(df_test.drop('duration', axis=1),
                       label = df_test['duration'],
                       cat_features=cat_features) """
-    objective = 'MAPE'
 
     ''' 
     The config passed to wandb.init() contains:
     - all parameters read by hydra from the YAML configuration file (possibly overridden by command line), converted
-      to a dict and under the key 'params'
+      to a dict and under the key 'params' -this is for logging into W&B only
+    - all parameters read from the YAML file with the list of files to be used for train/val/test, converted to a dict
+      under the key 'dataset_files' -this too is for logging into W&B only
     - all parameters to be passed to CatBoostRegressor(), as key-value pairs
     '''
     with wandb.init(project=params.wandb.project,
                     # dir=wandb_path,
                     config={'params': OmegaConf.to_object(params),
-                            'train_dir': catboost_path,
-                            'objective': objective,
-                            'task_type': params.catboost.task_type,
-                            'random_seed': params.catboost.random_seed,
-                            'iterations': params.catboost.iterations,
-                            'early_stopping_rounds': params.catboost.early_stopping_rounds,
-                            'per_float_feature_quantization': '5:border_count=1024'}) as run:
+                            'dataset_files': OmegaConf.to_object(dataset_config),
+                            # 'train_dir': catboost_path,
+                            } | OmegaConf.to_object(params.catboost.model)) as run:
         # Extract from wandb.config the parameters to be passed to CatBoostRegressor()
         # Note: wandb.config is a wandb SDK object, this is the correct way to convert it to a dict
         catboost_params = dict(wandb.config)
 
-        del (catboost_params['params'])
+        del catboost_params['params']
+        del catboost_params['dataset_files']
 
         # Instantiate and fit the model
         model = CatBoostRegressor(**catboost_params)
         model.fit(train_pool,
                   eval_set=val_pool,
                   use_best_model=True,
-                  verbose=params.catboost.verbose)
+                  verbose=params.catboost.fit.verbose)
 
         # Log the resulting metrics
         best_score = model.get_best_score()
         elapsed_time = perf_counter() - start_time
         print(f'Training time (sec) {elapsed_time}')
         wandb.log({'best_iteration': model.get_best_iteration(),
-                   'best_score_train': best_score['learn'][objective],
-                   'best_score_val': best_score['validation'][objective],
+                   'best_score_train': best_score['learn'][params.catboost.model.objective],
+                   'best_score_val': best_score['validation'][params.catboost.model.objective],
                    'training_time': elapsed_time})
 
 
@@ -189,5 +179,7 @@ if __name__ == '__main__':
 
 """
 TODO: 
+Try L2 regularization
 Should I shuffle the train set? Does Catboost already do it?
+log dataset_files as a param
 """

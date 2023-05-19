@@ -1,10 +1,13 @@
 train:
+  # - green_tripdata_2022-05.parquet
+  # - green_tripdata_2022-06.parquet
+  # - green_tripdata_2022-07.parquet
+  # - green_tripdata_2022-08.parquet
   - green_tripdata_2022-09.parquet
   - green_tripdata_2022-10.parquet
   - green_tripdata_2022-11.parquet
   - green_tripdata_2022-12.parquet
-
 validation:
   - green_tripdata_2023-01.parquet
-test:
   - green_tripdata_2023-02.parquet
+test:

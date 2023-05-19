@@ -12,4 +12,6 @@ parameters:
     min: 6
   border_count:
     value: 128
-    
+  l2_leaf_reg:
+    min: 1.0
+    max: 6.0
