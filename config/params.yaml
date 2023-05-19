@@ -2,8 +2,8 @@ catboost:
   task_type: GPU
   random_seed: 883
   verbose: 200
-  iterations: 400
+  iterations: 10000
   early_stopping_rounds: 200
 wandb:
-  count: 2
+  count: 10
   project: taxi_sweep

@@ -32,6 +32,7 @@ train_file_remote = 'https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripd
 val_file_remote = 'https://d37ci6vzurychx.cloudfront.net/trip-data/green_tripdata_2021-02.parquet'
 dot_env_path = config_path / '.env'
 sweep_config_path = config_path / 'sweep_config.yaml'
+dataset_config_path = config_path / 'dataset_files.yaml'
 
 if Path(dot_env_path).exists():
     load_dotenv(dot_env_path)
@@ -41,6 +42,25 @@ if getenv('WANDB_KEY') is None:
 variable WANDB_KEY to the key to be used, set it in {dot_env_path}, or jost login with "wandb login"')
 wandb.login(host='https://api.wandb.ai', key=getenv('WANDB_KEY'))
 
+dataset_config = OmegaConf.load(dataset_config_path)
+
+dataset = {}
+for dataset_type in ('train', 'validation'):
+    file_names = dataset_config[dataset_type]
+    dataset[dataset_type] = None
+    for name in file_names:
+        dataset_file_path = dataset_path / dataset_type / name
+        dataset_file_url = 'https://d37ci6vzurychx.cloudfront.net/trip-data/' + name
+        if not Path(dataset_file_path).exists():
+            info(f'Downloading dataset {dataset_file_url} into {dataset_file_path}')
+            urlretrieve(dataset_file_url, dataset_file_path)
+        df = pd.read_parquet(dataset_file_path)
+        if dataset[dataset_type] is None:
+            dataset[dataset_type] = df
+        else:
+            dataset[dataset_type] = pd.concat([dataset[dataset_type], df], axis=0)
+
+"""
 train_path = dataset_path / train_file
 if not Path(train_path).exists():
     info(f'Downloading dataset {train_file_remote} into {train_path}')
@@ -53,9 +73,8 @@ if not Path(val_path).exists():
 
 df_train = pd.read_parquet(train_path)
 df_val = pd.read_parquet(val_path)
-
+"""
 cat_features = ['PULocationID', 'DOLocationID', 'weekday']  # weekday is an artificial variable to be introduced below
-
 numerical = ['trip_distance']
 
 
@@ -77,9 +96,9 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-df_train = prepare(df_train)
+df_train = prepare(dataset['train'])
 # df_train = df_train[:20]
-df_val = prepare(df_val)
+df_val = prepare(dataset['validation'])
 
 info(f'Training set contains {len(df_train)} samples')
 info(f'Validation set contains {len(df_val)} samples')
@@ -116,7 +135,9 @@ def train(params: DictConfig) -> None:
                             'early_stopping_rounds': params.catboost.early_stopping_rounds,
                             'per_float_feature_quantization': '5:border_count=1024'}) as run:
         # Extract from wandb.config the parameters to be passed to CatBoostRegressor()
+        # Note: wandb.config is a wandb SDK object, this is the correct way to convert it to a dict
         catboost_params = dict(wandb.config)
+
         del (catboost_params['params'])
 
         # Instantiate and fit the model
@@ -168,5 +189,5 @@ if __name__ == '__main__':
 
 """
 TODO: 
-
+Should I shuffle the train set? Does Catboost already do it?
 """
